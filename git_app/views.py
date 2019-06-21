@@ -1,18 +1,37 @@
 from django.shortcuts import render
 from git_app.models import UserName
+from git_app.forms import user
 import json
 import requests
 # Create your views here.
 
 def userpage(request):
+    form=user()
+    if request.method=="POST":
+        form=user(request.POST)
+
+        if form.is_valid():
+            print("true")
+            # form.save(commit=True)
+            # print(form)
+        else:
+            print('error')
+
     user_list = UserName.objects.all()
-    user_dict = {'user_list':user_list}
-    print(user_dict)
+
+    user_dict = {'user_list':user_list,'form':form}
+
     return render(request, 'git_app/users.html', user_dict)
+
+
+
+
+
+
 
 def repopage(request, username=None):
     r = requests.get('https://api.github.com/users/'+username+'/repos')
-    repos = []    
+    repos = []
     if r.status_code == 404:
 	    print("No such user")
     else:
