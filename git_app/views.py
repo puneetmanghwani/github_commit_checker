@@ -3,182 +3,117 @@ from git_app.models import UserName
 from git_app.forms import AddUserForm
 import json
 import requests
+from threading import Thread
+from django.views.generic import TemplateView
 # Create your views here.
 
 
-# page  which shows all the username from the database
-def userpage(request):
+# handle request for the main page
+    # when the request is GET
+        # takes all the username fron the database model
+        # pass the data in form of dict to html page
+        # render index.html and pass the dict to it
+class userpage(TemplateView):
+    def get(self, request):
+        user_list = UserName.objects.all()
+        data_dict = {'user_list':user_list}
+        return render(request, 'git_app/index.html', data_dict)
+
+
+# handle dashboard page requests
+class new_repopage(TemplateView):
+    commit_data = []
+    count_data = []
+    repo_data = []
+
+    # pass the auth key to perform multiple search from the github-api
+    # write your own auth key for successful request to the server 
+    headers = {'Authorization': 'token <<your_token_here>> '}
+
+
+    # each thread extracts detail about commit for each repo
+    def commiter(self, repo):
+
+        # clearing previous data
+        self.commit_data = []
+        self.count_data = []
+        self.repo_data = []
+
+        commits=[]
+        counts = []
     
-    # form = AddUserForm()
-    
-    # # adding form handler+
-    # if request.method == "POST": 
-    #     form = AddUserForm(request.POST)
+        # request for commit information for the repo
+        r = requests.get('https://api.github.com/repos/'+self.username+'/'+repo+'/commits', headers = self.headers)
+        commits_json = json.loads(r.text)
+        count=0
 
-    #     if form.is_valid():
-    #         form.save(commit=True)
-    #         return userpage(request)
-    #     else:
-    #         print("ERROR ! FORM INVALID")
+        # check if no commit is done on a repo
+        # if exists the create 2 list  ---- 1. commit dates  ----   2. commit count on those date 
+        # simple if else rule to count number of commits for each repo
+        if 'message' not in commits_json:
+            for i in commits_json:
+                datetime = i['commit']['committer']['date']
+                date = datetime[:-1].split('T')[0]
+                if not commits:
+                    commits.append(date)
+                    count+=1
+                elif commits[-1] == date:
+                    count+=1
+                else:
+                    commits.append(date)
+                    counts.append(count)
+                    count=1
+            counts.append(count)
 
-    user_list = UserName.objects.all()
-    print(user_list)
-    
-    data_dict = {'user_list':user_list}
-    # data_dict = {'user_list':user_list, 'form':form}
-
-    return render(request, 'git_app/users.html', data_dict)
-
-
-def userlistpage(request):
-    user_list = UserName.objects.all()
-    print(user_list)
-    data_dict = {'user_list':user_list}
-    return render(request, 'git_app/userlist.html', data_dict)
-
-
-
-# page which shows all the repository of the user
-def repopage(request, username=None):
-    r = requests.get('https://api.github.com/users/'+username+'/repos')
-    repos = []    
-    if r.status_code == 404:
-	    print("No such user")
-    else:
-        repos_json = json.loads(r.text)
-        for i in repos_json:
-            if i['fork'] == False:
-    	        repos.append(i['name'])
-
-    repo_dict = {'repo_list' : repos, 'username':username}
-    return render(request, 'git_app/repos.html', repo_dict)
-    
-
-# for ploting the graph of commits on each repo
-def graphpage(request, username=None, repo=None):
-    commits=[]
-    counts = []
-    count=0
-    # get commits for repo
-    r = requests.get('https://api.github.com/repos/'+username+'/'+repo+'/commits')
-    commits_json = json.loads(r.text)
-
-    # if repo is committed even once
-    if 'message' not in commits_json:
-        for i in commits_json:
-            datetime = i['commit']['committer']['date']
-            date = datetime[:-1].split('T')[0]
-            # get number of commits on each date for single repo
-            if not commits:
-                commits.append(date)
-                count+=1
-            elif commits[-1] == date:
-                count+=1
-            else:
-                commits.append(date)
-                counts.append(count)
-                count=1
-
-        counts.append(count)
-
-    print(counts, commits,end='\n\n')
-    # sending commit-date along with number of commits on each date
-    graph_dict = {'commits':json.dumps(commits), 'counts':json.dumps(counts)}
-    return render(request, 'git_app/graph.html', graph_dict)
-    
+        # saving the commit data for each repo
+        # adding all the data for each repo to form a 2 - list of commit-date and commit-counts
+        self.repo_data.append(repo)
+        self.commit_data.append(commits)
+        self.count_data.append(counts)
 
 
-# doing same process as GRAPHPAGE but for all repository
-def fullgraph(request, username=None):
-    r = requests.get('https://api.github.com/users/'+username+'/repos')
+    # when the get request occurs 
+    def get(self, request, username=None):
+        self.username = username
+        # make request to the api for the repo of following username ; provided with auth-key as header
+        r = requests.get('https://api.github.com/users/'+self.username+'/repos', headers = self.headers)
 
-    if r.status_code == 404:
-        print("No such user")
-    else:
-        repos_json = json.loads(r.text)
-        repos = []
-        for i in repos_json:
-            if i['fork'] == False:
-                repos.append(i['name'])
-
-        commit_data = []
-        count_data = []
-        for repo in repos:
-            commits=[]
-            counts = []
-
-            r = requests.get('https://api.github.com/repos/'+username+'/'+repo+'/commits')
-            commits_json = json.loads(r.text)
-            count=0
-            if 'message' not in commits_json:
-                for i in commits_json:
-                    datetime = i['commit']['committer']['date']
-                    date = datetime[:-1].split('T')[0]
-                    if not commits:
-                        commits.append(date)
-                        count+=1
-                    elif commits[-1] == date:
-                        count+=1
-                    else:
-                        commits.append(date)
-                        counts.append(count)
-                        count=1
-                counts.append(count)
-
-            commit_data.append(commits)
-            count_data.append(counts)
+        # if user does not exist (status code is 404)
+        if r.status_code == 404:
+            # render error page from template directory   
+            return render(request, 'git_app/error-404.html')
+        else:
+            # convert the text to python-json format for easy retrieval
+            repos_json = json.loads(r.text)
+            repos = []
             
-        print(repos, commit_data,end='\n\n')
-        
-        graph = {'username':username,'repo_data':json.dumps(repos), "commit_data":json.dumps(commit_data), "count_data":json.dumps(count_data)}
-        return render(request, 'git_app/full_graph2.html', graph)
+            # extracting all the repository-name owned by the user
+            for i, j in enumerate(repos_json):
+                if i==0:
+                    avatar_url = j['owner']['avatar_url']           # user profile pic
+                if j['fork'] == False:                              # repo is forked or not
+                    repos.append(j['name'])
 
+            # initiating the thread for multiple request to the server
+            repo_thead = []
+            for repo in repos:
+                # commiter function is invoked and a repo is passed as an argument
+                repo_thead.append(Thread(target=self.commiter, args=(repo,)))
+                repo_thead[-1].start()
 
-
-
-def new_repopage(request, username=None):
-    # return render(request, 'git_app/new_repograph.html')
-    r = requests.get('https://api.github.com/users/'+username+'/repos')
-
-    if r.status_code == 404:
-        print("No such user")
-    else:
-        repos_json = json.loads(r.text)
-        repos = []
-        for i in repos_json:
-            if i['fork'] == False:
-                repos.append(i['name'])
-
-        commit_data = []
-        count_data = []
-        for repo in repos:
-            commits=[]
-            counts = []
-
-            r = requests.get('https://api.github.com/repos/'+username+'/'+repo+'/commits')
-            commits_json = json.loads(r.text)
-            count=0
-            if 'message' not in commits_json:
-                for i in commits_json:
-                    datetime = i['commit']['committer']['date']
-                    date = datetime[:-1].split('T')[0]
-                    if not commits:
-                        commits.append(date)
-                        count+=1
-                    elif commits[-1] == date:
-                        count+=1
-                    else:
-                        commits.append(date)
-                        counts.append(count)
-                        count=1
-                counts.append(count)
-
-            commit_data.append(commits)
-            count_data.append(counts)
+            # joining all the threads
+            for thread in repo_thead:
+                thread.join()
+                
+            # send all the data collected as in form of dictionary to the webpage
+            graph = {'username':self.username,'avatar_url':avatar_url ,'repo_data': self.repo_data, "commit_data":json.dumps(self.commit_data), "count_data":json.dumps(self.count_data)}
+            print(graph)
+            return render(request, 'git_app/new_repograph.html', graph)
             
-        print(repos, commit_data,end='\n\n')
-        
-        graph = {'username':username,'repo_data': repos, "commit_data":json.dumps(commit_data), "count_data":json.dumps(count_data)}
-        return render(request, 'git_app/new_repograph.html', graph)
-        
 
+
+# provide more options for the repo checking
+class fullgraph(TemplateView):
+    def get(self,request):
+        # renders full_graph page
+        return render(request, 'git_app/full_graph2.html')
